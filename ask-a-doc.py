@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
 import os
@@ -62,11 +63,13 @@ def ask_and_get_answer(vector_store, q, k=3):
     return answer
 
 
+# calculate embedding cost using tiktoken
 def calculate_embedding_cost(texts):
     import tiktoken
     enc = tiktoken.encoding_for_model('text-embedding-ada-002')
     total_tokens = sum([len(enc.encode(page.page_content)) for page in texts])
-
+    # print(f'Total Tokens: {total_tokens}')
+    # print(f'Embedding Cost in USD: {total_tokens / 1000 * 0.0004:.6f}')
     return total_tokens, total_tokens / 1000 * 0.0004
 
 
@@ -89,3 +92,70 @@ if __name__ == "__main__":
             "Chunk size", min_value=100, max_value=2048, value=750)
         k = st.number_input("k", min_value=1, max_value=20, value=3)
         add_data = st.button("Add Data")
+
+        if uploaded_file and add_data:
+            # display a message + execute block of code
+            with st.spinner("OK human, I will read your pitiful document..."):
+                bytes_data = uploaded_file.read()
+                file_path = os.path.join("./", uploaded_file.name)
+                with open(file_path, "wb") as f:
+                    f.write(bytes_data)
+
+                data = load_document(file_path)
+                chunks = chunk_data(data, chunk_size=chunk_size)
+
+                st.write(f"Chunks: {len(chunks)} Chunk size: {chunk_size}")
+                _, embedding_cost = calculate_embedding_cost(chunks)
+                st.write(f"Embedding cost: ${embedding_cost:.4f}")
+
+                vector_store = create_embeddings(chunks)
+
+                st.session_state.vs = vector_store
+                st.success(
+                    "Pathetic flesh-puppet, I have memorised your document. Ask away. ")
+
+    # Create the placeholder for chat history
+    chat_history_placeholder = st.empty()
+
+    # Check if history is present in session state, else assign an empty string
+    st.session_state.history = st.session_state.get('history', '')
+
+    # Create an empty text area at the start
+    chat_history_placeholder.text_area(
+        label="Chat History", value=st.session_state.history, height=400)
+
+    # User input for the question
+    with st.form(key="myform", clear_on_submit=True):
+        q = st.text_input("Ask your question", key="user_question")
+        st.form_submit_button("Submit")
+
+    # If user entered a question
+    if q:
+        if "vs" in st.session_state:
+            vector_store = st.session_state["vs"]
+            answer = ask_and_get_answer(vector_store, q, k)
+
+        # The current question and answer
+        question_and_answer = f'Q: {q} \nA: {answer}'
+
+        # Update the session state with the new chat history
+        st.session_state.history = f'{st.session_state.history} \n{question_and_answer} \n {"-" * 88} '
+
+        # Update the chat history in the placeholder as a text area
+        chat_history_placeholder.text_area(
+            label="Chat History", value=st.session_state.history, height=400)
+
+        # JavaScript code to scroll the text area to the bottom
+        js = f"""
+        <script>
+            function scroll(dummy_var_to_force_repeat_execution){{
+                var textAreas = parent.document.querySelectorAll('.stTextArea textarea');
+                for (let index = 0; index < textAreas.length; index++) {{
+                    textAreas[index].scrollTop = textAreas[index].scrollHeight;
+                }}
+            }}
+            scroll({len(st.session_state.history)})
+        </script>
+        """
+
+        components.html(js)
