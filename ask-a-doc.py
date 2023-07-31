@@ -77,6 +77,11 @@ def calculate_embedding_cost(texts):
     return total_tokens, total_tokens / 1000 * 0.0004
 
 
+def clear_history():
+    if "history" in st.session_state:
+        del st.session_state["history"]
+
+
 if __name__ == "__main__":
     import os
     from dotenv import load_dotenv, find_dotenv
@@ -93,9 +98,10 @@ if __name__ == "__main__":
         uploaded_file = st.file_uploader(
             "Upload a file", type=["pdf", "doc", "txt"])
         chunk_size = st.number_input(
-            "Chunk size", min_value=100, max_value=2048, value=750)
-        k = st.number_input("k", min_value=1, max_value=20, value=3)
-        add_data = st.button("Add Data")
+            "Chunk size", min_value=100, max_value=2048, value=750, on_change=clear_history)
+        k = st.number_input("k", min_value=1, max_value=20,
+                            value=3, on_change=clear_history)
+        add_data = st.button("Add Data", on_click=clear_history)
 
         if uploaded_file and add_data:
             # display a message + execute block of code
@@ -121,8 +127,8 @@ if __name__ == "__main__":
     # Create the placeholder for chat history
     chat_history_placeholder = st.empty()
 
-    # Check if history is present in session state, else assign an empty string
-    st.session_state.history = st.session_state.get('history', '')
+    if "history" not in st.session_state:
+        st.session_state.history = ""
 
     # Create an empty text area at the start
     chat_history_placeholder.text_area(
@@ -131,35 +137,35 @@ if __name__ == "__main__":
     # User input for the question
     with st.form(key="myform", clear_on_submit=True):
         q = st.text_input("Ask your question", key="user_question")
-        st.form_submit_button("Submit")
+        submit_button = st.form_submit_button("Submit")
 
     # If user entered a question
-    if q:
+    if submit_button:
         if "vs" in st.session_state:
             vector_store = st.session_state["vs"]
             answer = ask_and_get_answer(vector_store, q, k)
 
-        # The current question and answer
-        question_and_answer = f'Q: {q} \nA: {answer}'
+            # The current question and answer
+            question_and_answer = f'Q: {q} \nA: {answer}'
 
-        # Update the session state with the new chat history
-        st.session_state.history = f'{st.session_state.history} \n{question_and_answer} \n {"-" * 88} '
+            # Update the session state with the new chat history
+            st.session_state.history = f'{st.session_state.history} \n{question_and_answer} \n {"-" * 77} '
 
-        # Update the chat history in the placeholder as a text area
-        chat_history_placeholder.text_area(
-            label="Chat History", value=st.session_state.history, height=400)
+            # Update the chat history in the placeholder as a text area
+            chat_history_placeholder.text_area(
+                label="Chat History", value=st.session_state.history, height=400)
 
-        # JavaScript code to scroll the text area to the bottom
-        js = f"""
-        <script>
-            function scroll(dummy_var_to_force_repeat_execution){{
-                var textAreas = parent.document.querySelectorAll('.stTextArea textarea');
-                for (let index = 0; index < textAreas.length; index++) {{
-                    textAreas[index].scrollTop = textAreas[index].scrollHeight;
+            # JavaScript code to scroll the text area to the bottom
+            js = f"""
+            <script>
+                function scroll(dummy_var_to_force_repeat_execution){{
+                    var textAreas = parent.document.querySelectorAll('.stTextArea textarea');
+                    for (let index = 0; index < textAreas.length; index++) {{
+                        textAreas[index].scrollTop = textAreas[index].scrollHeight;
+                    }}
                 }}
-            }}
-            scroll({len(st.session_state.history)})
-        </script>
-        """
+                scroll({len(st.session_state.history)})
+            </script>
+            """
 
-        components.html(js)
+            components.html(js)
