@@ -58,11 +58,24 @@ def create_embeddings(chunks):
 def ask_and_get_answer(vector_store, q, k=3):
     from langchain.chains import RetrievalQA
     from langchain.chat_models import ChatOpenAI
+    from langchain.prompts import PromptTemplate
     llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=1)
     retriever = vector_store.as_retriever(
         search_type="similarity", search_kwargs={'k': k})
+
+    prompt_template = """You are are examining a document. Use only the following piece of context to answer the questions at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Speak only English".
+
+    {context}
+
+    Question: {question}
+    """
+    PROMPT = PromptTemplate(
+        template=prompt_template, input_variables=["context", "question"]
+    )
+    chain_type_kwargs = {"prompt": PROMPT}
+
     chain = RetrievalQA.from_chain_type(
-        llm=llm, chain_type="stuff", retriever=retriever)
+        llm=llm, chain_type="stuff", retriever=retriever, chain_type_kwargs=chain_type_kwargs)
     answer = chain.run(q)
     return answer
 
@@ -77,9 +90,7 @@ def ask_with_memory(vector_store, question, chat_history=[]):
 
     crc = ConversationalRetrievalChain.from_llm(llm, retriever)
     result = crc({'question': question, 'chat_history': chat_history})
-    chat_history.append((question, result['answer']))
-
-    return result, chat_history
+    return result
 
 
 # calculate embedding cost using tiktoken
@@ -95,6 +106,15 @@ def calculate_embedding_cost(texts):
 def clear_history():
     if "history" in st.session_state:
         del st.session_state["history"]
+
+
+def format_chat_history(chat_history):
+    formatted_history = ""
+    for entry in chat_history:
+        question, answer = entry
+        # Added an extra '\n' for the blank line
+        formatted_history += f"Question: {question}\nAnswer: {answer}\n\n"
+    return formatted_history
 
 
 if __name__ == "__main__":
@@ -143,11 +163,11 @@ if __name__ == "__main__":
     chat_history_placeholder = st.empty()
 
     if "history" not in st.session_state:
-        st.session_state.history = ""
+        st.session_state.history = []
 
     # Create an empty text area at the start
     chat_history_placeholder.text_area(
-        label="Chat History", value=st.session_state.history, height=400)
+        label="Chat History", value="", height=400)
 
     # User input for the question
     with st.form(key="myform", clear_on_submit=True):
@@ -158,17 +178,15 @@ if __name__ == "__main__":
     if submit_button:
         if "vs" in st.session_state:
             vector_store = st.session_state["vs"]
-            answer = ask_and_get_answer(vector_store, q, k)
+            result = ask_with_memory(vector_store, q, st.session_state.history)
 
-            # The current question and answer
-            question_and_answer = f'Q: {q} \nA: {answer}'
+            st.session_state.history.append((q, result['answer']))
 
-            # Update the session state with the new chat history
-            st.session_state.history = f'{st.session_state.history} \n{question_and_answer} \n {"-" * 77} '
+            chat_history_str = format_chat_history(st.session_state.history)
 
             # Update the chat history in the placeholder as a text area
             chat_history_placeholder.text_area(
-                label="Chat History", value=st.session_state.history, height=400)
+                label="Chat History", value=chat_history_str, height=400)
 
             # JavaScript code to scroll the text area to the bottom
             js = f"""
