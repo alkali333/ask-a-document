@@ -63,11 +63,12 @@ def ask_and_get_answer(vector_store, q, k=3):
     retriever = vector_store.as_retriever(
         search_type="similarity", search_kwargs={'k': k})
 
-    prompt_template = """You are are examining a document. Use only the following piece of context to answer the questions at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Speak only English".
+    prompt_template = """You are are examining a document. Use only the following piece of context to answer the questions at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.".
 
     {context}
 
     Question: {question}
+    Answer only in English.
     """
     PROMPT = PromptTemplate(
         template=prompt_template, input_variables=["context", "question"]
@@ -136,6 +137,8 @@ if __name__ == "__main__":
             "Chunk size", min_value=100, max_value=2048, value=750, on_change=clear_history)
         k = st.number_input("k", min_value=1, max_value=20,
                             value=3, on_change=clear_history)
+        chat_context_length = st.number_input(
+            "Chat context length", min_value=1, max_value=30, value=10, on_change=clear_history) or 10
         add_data = st.button("Add Data", on_click=clear_history)
 
         if uploaded_file and add_data:
@@ -179,6 +182,10 @@ if __name__ == "__main__":
         if "vs" in st.session_state:
             vector_store = st.session_state["vs"]
             result = ask_with_memory(vector_store, q, st.session_state.history)
+
+            # If there are n or more messages, remove the first element of the array
+            if len(st.session_state.history) >= chat_context_length:
+                st.session_state.history = st.session_state.history[1:]
 
             st.session_state.history.append((q, result['answer']))
 
