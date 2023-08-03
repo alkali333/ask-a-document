@@ -63,12 +63,11 @@ def ask_and_get_answer(vector_store, q, k=3):
     retriever = vector_store.as_retriever(
         search_type="similarity", search_kwargs={'k': k})
 
-    prompt_template = """You are are examining a document. Use only the following piece of context to answer the questions at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.".
+    prompt_template = """You are are examining a document. Use only the following piece of context to answer the questions at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Do not add any observations or comments. Answer only in English".
+    
+    CONTEXT {context}
 
-    {context}
-
-    Question: {question}
-    Answer only in English.
+    QUESTION: {question}
     """
     PROMPT = PromptTemplate(
         template=prompt_template, input_variables=["context", "question"]
@@ -81,15 +80,32 @@ def ask_and_get_answer(vector_store, q, k=3):
     return answer
 
 
-def ask_with_memory(vector_store, question, chat_history=[]):
+def ask_with_memory(vector_store, question, chat_history=[], document_description=""):
     from langchain.chains import ConversationalRetrievalChain
     from langchain.chat_models import ChatOpenAI
+    from langchain.prompts.chat import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 
     llm = ChatOpenAI(temperature=1)
-    retriever = vector_store.as_retriever(
-        search_type='similarity', search_kwargs={'k': 3})
+    retriever = vector_store.as_retriever( # now the vs can return documents
+    search_type='similarity', search_kwargs={'k': 3})
+ 
+    general_system_template = f""" 
+    You are examining a document. Use only the heading and piece of context to answer the questions at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Do not add any observations or comments. Answer only in English.
+    ----
+    HEADING: ({document_description})
+    CONTEXT: {{context}}
+    ----
+    """
+    general_user_template = "Here is the next question, remember to only answer if you can from the provided context. Only respond in English. QUESTION:```{question}```"
 
-    crc = ConversationalRetrievalChain.from_llm(llm, retriever)
+    messages = [
+                SystemMessagePromptTemplate.from_template(general_system_template),
+                HumanMessagePromptTemplate.from_template(general_user_template)
+    ]
+    qa_prompt = ChatPromptTemplate.from_messages( messages )
+
+
+    crc = ConversationalRetrievalChain.from_llm(llm, retriever, combine_docs_chain_kwargs={'prompt': qa_prompt})
     result = crc({'question': question, 'chat_history': chat_history})
     return result
 
@@ -139,6 +155,7 @@ if __name__ == "__main__":
                             value=3, on_change=clear_history)
         chat_context_length = st.number_input(
             "Chat context length", min_value=1, max_value=30, value=10, on_change=clear_history) or 10
+        document_description = st.text_input("Describe your document")
         add_data = st.button("Add Data", on_click=clear_history)
 
         if uploaded_file and add_data:
@@ -156,9 +173,9 @@ if __name__ == "__main__":
                 _, embedding_cost = calculate_embedding_cost(chunks)
                 st.write(f"Embedding cost: ${embedding_cost:.4f}")
 
-                vector_store = create_embeddings(chunks)
+                st.session_state.vector_store = create_embeddings(chunks)
 
-                st.session_state.vs = vector_store
+                 
                 st.success(
                     "Pathetic flesh-puppet, I have memorised your document. Ask away. ")
 
@@ -179,9 +196,10 @@ if __name__ == "__main__":
 
     # If user entered a question
     if submit_button:
-        if "vs" in st.session_state:
-            vector_store = st.session_state["vs"]
-            result = ask_with_memory(vector_store, q, st.session_state.history)
+        if "vector_store" in st.session_state:
+            vector_store = st.session_state["vector_store"]
+
+            result = ask_with_memory(vector_store, q, st.session_state.history, document_description)
 
             # If there are n or more messages, remove the first element of the array
             if len(st.session_state.history) >= chat_context_length:
@@ -189,7 +207,8 @@ if __name__ == "__main__":
 
             st.session_state.history.append((q, result['answer']))
 
-            chat_history_str = format_chat_history(st.session_state.history)
+            # Create formatted string to show user, removing the inserted phrase
+            chat_history_str = format_chat_history(st.session_state.history)            
 
             # Update the chat history in the placeholder as a text area
             chat_history_placeholder.text_area(
